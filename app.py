@@ -11,7 +11,10 @@ class SimpleRAG:
         self.vectorizer = TfidfVectorizer(
             max_features=1000,
             stop_words=None,
-            ngram_range=(1, 2)
+            ngram_range=(1, 3),  # 增加3-gram提高匹配度
+            min_df=1,  # 最小文档频率
+            lowercase=True,
+            analyzer='word'
         )
         
         # 知识库
@@ -23,10 +26,15 @@ class SimpleRAG:
         self.load_default_knowledge()
     
     def preprocess_text(self, text):
-        """文本预处理"""
-        # 简单的文本清理
-        text = re.sub(r'[^\w\s]', '', text)
-        return text.lower()
+        """文本预处理 - 改进中文处理"""
+        # 保留中文字符，移除标点符号
+        text = re.sub(r'[^\u4e00-\u9fa5\w\s]', ' ', text)
+        # 使用jieba分词处理中文
+        try:
+            words = jieba.lcut(text)
+            return ' '.join(words).lower()
+        except:
+            return text.lower()
     
     def load_default_knowledge(self):
         """加载默认知识库"""
@@ -70,16 +78,27 @@ class SimpleRAG:
         # 计算相似度
         similarities = cosine_similarity(query_vector, self.doc_vectors)[0]
         
+        # 降低相似度阈值，确保能检索到文档
+        min_similarity = 0.01  # 很低的阈值
+        
         # 获取top_k最相似的文档
         top_indices = np.argsort(similarities)[-top_k:][::-1]
         
         retrieved_docs = []
         for idx in top_indices:
-            if similarities[idx] > 0:  # 只返回有相似度的文档
+            if similarities[idx] > min_similarity:
                 retrieved_docs.append({
                     'content': self.documents[idx],
                     'similarity': similarities[idx]
                 })
+        
+        # 如果没有检索到，返回相似度最高的文档
+        if not retrieved_docs and len(similarities) > 0:
+            best_idx = np.argmax(similarities)
+            retrieved_docs.append({
+                'content': self.documents[best_idx],
+                'similarity': similarities[best_idx]
+            })
         
         return retrieved_docs
     
